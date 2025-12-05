@@ -1,0 +1,30 @@
+import { LightColors } from "../themes/colors.slint";
+
+export component Badge {
+    in property <int> count: 0;
+    in property <string> type: "success";
+
+    min-width: 28px;
+    height: 28px;
+
+    Rectangle {
+        background: type == "success"
+            ? LightColors.badge-success
+            : LightColors.badge-error;
+        border-radius: 12px;
+
+        HorizontalLayout {
+            padding-left: 12px;
+            padding-right: 12px;
+
+            Text {
+                text: count;
+                color: #FFFFFF;
+                font-size: 14px;
+                font-weight: 700;
+                vertical-alignment: center;
+                horizontal-alignment: center;
+            }
+        }
+    }
+}

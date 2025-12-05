@@ -1,0 +1,30 @@
+# Rust
+/target/
+Cargo.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# 配置文件（包含敏感信息）
+config.toml
+*.env
+CLAUDE.md
+.claude
+
+# 日志
+*.log
+
+# Windows
+Thumbs.db
+
+# Slint 生成的缓存
+.slint/
+
+#开发计划
+/docs
+
+
+
+

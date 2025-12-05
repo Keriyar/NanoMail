@@ -1,0 +1,63 @@
+[package]
+name = "nanomail"
+version = "0.1.0"
+edition = "2024"
+authors = ["NanoMail Project"]
+description = "A lightweight Gmail notification client for Windows"
+license = "GPL-3.0"
+
+[dependencies]
+# UI框架 - Slint
+slint = "1.8"
+
+# 异步运行时
+tokio = { version = "1.38", features = ["full"] }
+
+# HTTP客户端
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+
+# OAuth2
+oauth2 = "4.4"
+tiny_http = "0.12"
+
+# 系统集成
+tray-icon = "0.14"
+webbrowser = "1.0"
+image = "0.25"
+
+# 数据序列化
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+
+# 加密
+aes-gcm = "0.10"
+rand = "0.8"
+argon2 = "0.5"
+
+# Windows 注册表（用于机器指纹）
+winreg = "0.52"
+
+# 日志
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# 错误处理
+anyhow = "1.0"
+thiserror = "1.0"
+
+# 工具库
+chrono = { version = "0.4", features = ["serde"] }
+base64 = "0.22"
+url = "2.5"
+dirs = "5.0"
+
+[build-dependencies]
+slint-build = "1.8"
+
+[profile.release]
+opt-level = 'z'         # 体积优化
+lto = true              # 链接时优化
+codegen-units = 1       # 单编译单元
+strip = true            # 移除调试符号
+panic = 'abort'         # 减小panic处理代码

@@ -1,0 +1,161 @@
+import { VerticalBox, ScrollView } from "std-widgets.slint";
+import { LightColors } from "themes/colors.slint";
+import { IconButton } from "components/icon_button.slint";
+import { Badge } from "components/badge.slint";
+import { AccountCard } from "components/account_card.slint";
+
+// 数据结构
+export struct Account {
+    email: string,
+    display-name: string,
+    avatar-image: image,
+    unread-count: int,
+    is-loading: bool,
+    has-error: bool,
+}
+
+export component MainWindow inherits Window {
+    // ===== 属性 =====
+    in-out property <[Account]> accounts: [];
+    in property <string> theme: "light";
+
+    // 应用状态("normal" | "unread" | "error")
+    in-out property <string> app-status: "normal";
+
+    // ===== 回调 =====
+    callback theme-toggled();
+    callback add-account-clicked();
+    callback open-gmail-clicked();
+    callback feedback-clicked();
+    callback exit-clicked();
+    callback avatar-retry(int /* account index */);
+
+    // ===== 颜色计算函数 =====
+    pure function get-status-color() -> color {
+        if (app-status == "unread") {
+            return LightColors.status-unread;
+        } else if (app-status == "error") {
+            return LightColors.status-error;
+        } else {
+            return LightColors.status-normal;
+        }
+    }
+
+    // ===== 窗口配置 =====
+    title: "NanoMail";
+    width: 380px;
+    height: 60px + 1px + max(80px, accounts.length * 80px) + 1px + 60px;
+    no-frame: true;
+
+    // ===== 主容器 =====
+    Rectangle {
+        background: LightColors.background;
+        border-radius: 16px;
+        drop-shadow-blur: 20px;
+        drop-shadow-color: LightColors.shadow;
+
+        VerticalLayout {
+            padding: 0px;
+            spacing: 0px;
+
+            // ===== 标题栏 (60px) =====
+            Rectangle {
+                height: 60px;
+
+                HorizontalLayout {
+                    padding-left: 20px;
+                    padding-right: 20px;
+                    spacing: 12px;
+
+                    // "Nano Notification" 标题（"N"动态着色）
+                    HorizontalLayout {
+                        spacing: 0px;
+
+                        Text {
+                            text: "N";
+                            color: get-status-color();
+                            font-size: 18px;
+                            vertical-alignment: center;
+                        }
+
+                        Text {
+                            text: "ano Notification";
+                            color: LightColors.text-primary;
+                            font-size: 18px;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    // 弹簧
+                    Rectangle { }
+
+                    // 月亮图标（主题切换）
+                    IconButton {
+                        icon: @image-url("../assets/icons/moon.svg");
+                        clicked => { root.theme-toggled(); }
+                    }
+
+                    // 信封图标（打开Gmail）
+                    IconButton {
+                        icon: @image-url("../assets/icons/envelope.svg");
+                        clicked => { root.open-gmail-clicked(); }
+                    }
+                }
+            }
+
+            // ===== 分隔线 =====
+            Rectangle {
+                height: 1px;
+                background: LightColors.separator;
+            }
+
+            // ===== 账户列表区域 =====
+            ScrollView {
+                VerticalLayout {
+                    spacing: 0px;
+
+                    for account[index] in accounts: AccountCard {
+                        account: account;
+                        avatar-clicked => {
+                            root.avatar-retry(index);
+                        }
+                    }
+                }
+            }
+
+            // ===== 分隔线 =====
+            Rectangle {
+                height: 1px;
+                background: LightColors.separator;
+            }
+
+            // ===== 操作栏 (60px) =====
+            Rectangle {
+                height: 60px;
+
+                HorizontalLayout {
+                    alignment: center;
+                    spacing: 40px;
+
+                    // 加号按钮（添加账户）
+                    IconButton {
+                        icon: @image-url("../assets/icons/plus.svg");
+                        clicked => { root.add-account-clicked(); }
+                    }
+
+                    // Bug按钮（反馈）
+                    IconButton {
+                        icon: @image-url("../assets/icons/bug.svg");
+                        clicked => { root.feedback-clicked(); }
+                    }
+
+                    // 退出按钮
+                    IconButton {
+                        icon: @image-url("../assets/icons/arrow-left.svg");
+                        clicked => { root.exit-clicked(); }
+                    }
+                }
+            }
+        }
+    }
+}

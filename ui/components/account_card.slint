@@ -1,0 +1,76 @@
+import { LightColors } from "../themes/colors.slint";
+import { Badge } from "badge.slint";
+
+// 本地定义 Account 结构体(与 main.slint 保持一致)
+struct Account {
+    email: string,
+    display-name: string,
+    avatar-image: image,
+    unread-count: int,
+    is-loading: bool,
+    has-error: bool,
+}
+
+export component AccountCard {
+    in property <Account> account;
+    callback avatar-clicked();
+
+    height: 80px;
+
+    HorizontalLayout {
+        padding-left: 20px;
+        padding-right: 20px;
+        spacing: 12px;
+        alignment: center;
+
+        // 头像区域（MVP: 仅显示占位符）
+        Rectangle {
+            width: 48px;
+            height: 48px;
+            border-radius: 24px;
+            border-width: 1px;
+            border-color: LightColors.separator;
+            clip: true;
+
+            // 显示 avatar-image（由 Rust 端提供：实际头像或占位符）
+            Image {
+                source: account.avatar-image;
+                width: 100%;
+                height: 100%;
+            }
+
+            TouchArea {
+                clicked => { root.avatar-clicked(); }
+            }
+        }
+
+        // 用户信息区域
+        VerticalLayout {
+            spacing: 2px;
+
+            Text {
+                text: account.display-name;
+                color: LightColors.text-primary;
+                font-size: 16px;
+                font-weight: 600;
+                horizontal-alignment: left;
+            }
+
+            Text {
+                text: account.email;
+                color: LightColors.text-secondary;
+                font-size: 13px;
+                horizontal-alignment: left;
+            }
+        }
+
+        // 弹簧（推向右侧）
+        Rectangle { }
+
+        // 未读徽章
+        if account.unread-count > 0: Badge {
+            count: account.unread-count;
+            type: account.has-error ? "error" : "success";
+        }
+    }
+}
