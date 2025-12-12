@@ -1,9 +1,11 @@
+#![windows_subsystem = "windows"]
+
 // 导入 Slint 生成的代码
 slint::include_modules!();
 
 use anyhow::Result;
 use slint::Model;
-use std::sync::{mpsc, Arc};
+use std::sync::{Arc, mpsc};
 
 mod config;
 mod mail;
@@ -52,6 +54,7 @@ fn main() -> Result<()> {
     // 6. 设置初始应用状态为 Normal（绿色 N）
     main_window.set_app_status("normal".into());
     tracing::debug!("应用状态初始化: Normal (绿色 N)");
+    tracing::info!("app_status set -> normal (初始化)");
 
     // 7. 创建系统托盘
     let _tray_handle = tray::create_tray_icon(tray_tx.clone())?;
@@ -63,36 +66,107 @@ fn main() -> Result<()> {
     let sync_engine = Arc::new(sync::SyncEngine::new(rt_handle.clone()));
     let window_weak_for_sync = main_window.as_weak();
 
-    sync_engine.start(move |email, sync_info| {
-        tracing::debug!("收到同步回调: {} - 未读 {}", email, sync_info.unread_count);
+    sync_engine.start(move |email, res| {
+        match res {
+            Ok(sync_info) => {
+                tracing::debug!("收到同步回调: {} - 未读 {}", email, sync_info.unread_count);
 
-        // 更新UI（必须在事件循环中）
-        slint::invoke_from_event_loop({
-            let weak = window_weak_for_sync.clone();
-            let sync_info = sync_info.clone();
+                // 更新UI（必须在事件循环中）
+                let weak = window_weak_for_sync.clone();
+                let sync_info_cloned = sync_info.clone();
+                slint::invoke_from_event_loop(move || {
+                    if let Some(window) = weak.upgrade() {
+                        update_account_sync_info(&window, sync_info_cloned.clone());
 
-            move || {
-                if let Some(window) = weak.upgrade() {
-                    update_account_sync_info(&window, sync_info);
-                }
+                        // 优先检查网络问题：若同步过程中曾检测到网络问题，显示红色
+                        if sync_info_cloned.network_issue {
+                            window.set_app_status("error".into());
+                            tracing::info!("app_status set -> error (network_issue)");
+                            tracing::error!(
+                                "账户 {} 同步过程中检测到网络问题",
+                                sync_info_cloned.email
+                            );
+                        } else if sync_info_cloned.error_message.is_some() {
+                            // 如果同步信息中包含错误，显示黄色（Token 问题）
+                            // Slint 中黄色状态的标识为 "unread"
+                            window.set_app_status("unread".into());
+                            tracing::info!("app_status set -> unread (error_message)");
+                            tracing::warn!(
+                                "账户 {} 同步包含错误: {:?}",
+                                sync_info_cloned.email,
+                                sync_info_cloned.error_message
+                            );
+                        } else {
+                            // 网络和 Token 均正常 -> 绿色
+                            window.set_app_status("normal".into());
+                        }
+                    }
+                })
+                .ok();
             }
-        })
-        .ok();
+            Err(err_msg) => {
+                tracing::error!("同步账户失败: {} -> {}", email, err_msg);
+
+                // 构造带错误信息的 AccountSyncInfo 以更新 UI（标为 has_error）
+                let info = mail::gmail::AccountSyncInfo {
+                    email: email.clone(),
+                    unread_count: 0,
+                    avatar_url: String::new(),
+                    display_name: email.clone(),
+                    error_message: Some(err_msg.clone()),
+                    network_issue: true,
+                };
+
+                let weak = window_weak_for_sync.clone();
+                let err_clone = err_msg.clone();
+                slint::invoke_from_event_loop(move || {
+                    if let Some(window) = weak.upgrade() {
+                        update_account_sync_info(&window, info);
+
+                        // 网络不可用 -> 红色；否则视为 Token 或其他错误 -> 黄色
+                        if err_clone.contains("网络不可用") {
+                            window.set_app_status("error".into());
+                            tracing::info!(
+                                "app_status set -> error (callback Err contains 网络不可用)"
+                            );
+                        } else {
+                            // 其他错误（如 Token 问题）显示黄色（Slint 使用 "unread" 表示黄色）
+                            window.set_app_status("unread".into());
+                            tracing::info!("app_status set -> unread (callback Err other)");
+                        }
+                    }
+                })
+                .ok();
+            }
+        }
     });
 
-    // 10. 启动托盘事件监听线程（传入 SyncEngine 引用以便优雅退出）
+    // 10. 启动托盘事件监听线程（传入 SyncEngine 引用与退出信号以便优雅退出）
     let window_weak = main_window.as_weak();
     let tray_sync = sync_engine.clone();
+    // 创建退出信号通道，主线程将在 UI 事件循环返回后等待此信号
+    let (shutdown_tx, shutdown_rx) = mpsc::channel::<()>();
+    let shutdown_tx_clone = shutdown_tx.clone();
     std::thread::spawn(move || {
-        handle_tray_commands(tray_rx, window_weak, tray_sync);
+        handle_tray_commands(tray_rx, window_weak, tray_sync, shutdown_tx_clone);
     });
 
-    // 11. 窗口初始隐藏（托盘应用特性）
-    main_window.hide()?;
-    tracing::info!("NanoMail v0.1.0 启动成功（托盘模式）");
+    // 11. 窗口初始显示（默认在启动时打开主界面）
+    tracing::info!("NanoMail v0.1.0 启动，显示主界面于右下角");
+    tray::show_window_near_tray(&main_window);
 
-    // 12. 运行 UI 事件循环
-    main_window.run()?;
+    // 12. 运行 Slint 全局事件循环（保持运行，即使窗口被隐藏）
+    // 使用 run_event_loop_until_quit() 确保即使窗口隐藏也能继续处理事件
+    let _ = slint::run_event_loop_until_quit();
+
+    // 当我们在托盘点击“推出”时，托盘线程会调用 slint::quit_event_loop(),
+    // 此时全局事件循环返回，我们在这里等待托盘线程发送的退出信号以完成清理。
+    tracing::debug!("事件循环已退出，等待托盘线程的退出信号以完成优雅关机...");
+    let _ = shutdown_rx.recv();
+
+    tracing::info!("收到推出信号，开始优雅关机...");
+    sync_engine.request_stop();
+    std::thread::sleep(std::time::Duration::from_millis(200));
 
     Ok(())
 }
@@ -102,6 +176,7 @@ fn handle_tray_commands(
     rx: mpsc::Receiver<tray::TrayCommand>,
     window_weak: slint::Weak<MainWindow>,
     sync_engine: std::sync::Arc<sync::SyncEngine>,
+    shutdown_tx: mpsc::Sender<()>,
 ) {
     while let Ok(cmd) = rx.recv() {
         let weak = window_weak.clone();
@@ -109,57 +184,89 @@ fn handle_tray_commands(
         // 对于可能影响运行时或需要先停止后台任务的命令，优先处理
         match cmd {
             tray::TrayCommand::Exit => {
+                tracing::info!("========================================");
                 tracing::info!("托盘收到退出命令，开始优雅关机流程");
+                tracing::info!("========================================");
+
                 // 请求同步引擎停止（同步接口）
                 sync_engine.request_stop();
 
-                // 然后在主线程执行 UI 隐藏并退出
-                slint::invoke_from_event_loop(move || {
+                // 在主线程执行 UI 隐藏并退出事件循环
+                let quit_result = slint::invoke_from_event_loop(move || {
                     if let Some(window) = weak.upgrade() {
+                        tracing::info!("退出流程: 隐藏窗口");
                         window.hide().ok();
                     }
-                    tracing::info!("用户从托盘退出应用");
-                    std::process::exit(0);
-                })
-                .ok();
+                    tracing::info!("退出流程: 调用 quit_event_loop()");
+                    match slint::quit_event_loop() {
+                        Ok(_) => tracing::info!("退出流程: quit_event_loop() 成功"),
+                        Err(e) => tracing::error!("退出流程: quit_event_loop() 失败: {:?}", e),
+                    }
+                });
 
-                // 继续循环但通常不会到达，因为上面已 exit
-                continue;
+                match quit_result {
+                    Ok(_) => tracing::info!("退出流程: invoke_from_event_loop 成功"),
+                    Err(e) => {
+                        tracing::error!("退出流程: invoke_from_event_loop 失败: {:?}", e);
+                        // 如果 invoke_from_event_loop 失败，强制退出
+                        tracing::error!("退出流程: 尝试强制退出...");
+                        std::process::exit(0);
+                    }
+                }
+
+                // 发送退出信号给主线程以完成优雅退出（主线程在 run_event_loop() 返回后会等待此信号）
+                if let Err(e) = shutdown_tx.send(()) {
+                    tracing::error!("退出流程: 发送退出信号失败: {:?}", e);
+                }
+
+                tracing::info!("退出流程: 托盘线程退出循环");
+                // 退出循环
+                break;
             }
             _ => {}
         }
 
         // 确保 UI 更新在主线程执行
-        slint::invoke_from_event_loop(move || {
+        let result = slint::invoke_from_event_loop(move || {
             if let Some(window) = weak.upgrade() {
                 match cmd {
                     tray::TrayCommand::ToggleWindow => {
+                        tracing::info!("处理托盘命令: ToggleWindow");
                         tray::toggle_window(&window);
                     }
                     tray::TrayCommand::ShowWindow => {
+                        tracing::info!("处理托盘命令: ShowWindow");
                         tray::show_window_near_tray(&window);
                     }
                     tray::TrayCommand::HideWindow => {
+                        tracing::info!("处理托盘命令: HideWindow");
                         window.hide().ok();
                     }
                     tray::TrayCommand::OpenGmail => {
+                        tracing::info!("处理托盘命令: OpenGmail");
                         open_gmail();
                     }
                     tray::TrayCommand::ShowAbout => {
+                        tracing::info!("处理托盘命令: ShowAbout");
                         show_about_dialog();
                     }
                     _ => {}
                 }
+            } else {
+                tracing::warn!("窗口引用已失效，无法处理托盘命令");
             }
-        })
-        .ok();
+        });
+
+        if let Err(e) = result {
+            tracing::error!("invoke_from_event_loop 失败: {:?}", e);
+        }
     }
 }
 
 fn show_about_dialog() {
     tracing::info!("显示关于对话框");
     // MVP: 打开 GitHub 页面
-    webbrowser::open("https://github.com/crayonape/NanoMail").ok();
+    webbrowser::open("https://github.com/Keriyar/NanoMail").ok();
 }
 
 fn open_gmail() {
@@ -243,16 +350,16 @@ fn bind_callbacks(
     main_window.on_feedback_clicked({
         move || {
             tracing::info!("[回调] 反馈按钮被点击");
-            let url = "https://github.com/crayonape/NanoMail/issues";
+            let url = "https://github.com/Keriyar/NanoMail";
             webbrowser::open(url).ok();
         }
     });
 
-    // 退出按钮 - 改为隐藏窗口
-    main_window.on_exit_clicked({
+    // 窗口中的“隐藏到托盘”按钮（之前名为退出）
+    main_window.on_minimize_clicked({
         let weak = main_window.as_weak();
         move || {
-            tracing::info!("[回调] 退出按钮被点击，隐藏窗口");
+            tracing::info!("[回调] 隐藏到托盘按钮被点击，隐藏窗口");
             if let Some(window) = weak.upgrade() {
                 window.hide().ok();
             }

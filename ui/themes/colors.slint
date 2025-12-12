@@ -1,23 +1,25 @@
-// 亮色主题颜色定义（MVP 仅此主题）
+// 亮色主题颜色定义(MVP 仅此主题) - macOS 磨砂玻璃风格
 export global LightColors {
-    // 背景色
-    in property <color> background: #FFFFFF;
-    in property <color> surface: #FFFFFF;
+    // 背景色 - 增强磨砂玻璃效果
+    in property <color> background: #FFFFFFD9;  // 半透明白色(85% 不透明度,更强磨砂感)
+    in property <color> surface: #FAFAFAF2;     // 轻微灰调的磨砂表面
+    in property <color> surface-elevated: #FFFFFFFF;  // 提升的表面(完全不透明)
 
-    // 文字颜色
-    in property <color> text-primary: #000000;
-    in property <color> text-secondary: #8E8E93;
+    // 文字颜色 - macOS 标准
+    in property <color> text-primary: #1D1D1F;      // 近黑但不是纯黑
+    in property <color> text-secondary: #86868B;    // macOS 次级文字灰
+    in property <color> text-tertiary: #AEAEB2;     // 三级文字灰
 
-    // 分隔线
-    in property <color> separator: #E5E5E5;
+    // 分隔线 - 更细腻的分隔
+    in property <color> separator: #D1D1D680;  // 更透明的分隔线
 
-    // 交互元素
-    in property <color> button-hover: #F2F2F7;
-    in property <color> button-active: #E5E5EA;
+    // 交互元素 - macOS 标准交互色
+    in property <color> button-hover: #F5F5F7E6;    // 悬停状态(90% 不透明度)
+    in property <color> button-active: #E8E8EDD9;   // 按下状态(85% 不透明度)
 
-    // 徽章颜色
-    in property <color> badge-success: #34C759;
-    in property <color> badge-error: #FF3B30;
+    // 徽章颜色 - macOS 系统色
+    in property <color> badge-success: #34C759;  // iOS 绿色
+    in property <color> badge-error: #FF3B30;    // iOS 红色
 
     // 品牌色
     in property <color> google-green: #34A853;
@@ -27,6 +29,12 @@ export global LightColors {
     in property <color> status-unread: #EA4335;   // Google Red
     in property <color> status-error: #FBBC05;    // Google Yellow
 
-    // 阴影
-    in property <color> shadow: #00000026; // rgba(0,0,0,0.15)
+    // 阴影系统 - macOS 多层次阴影
+    in property <color> shadow-light: #0000000D;  // rgba(0,0,0,0.05) 轻阴影
+    in property <color> shadow-medium: #00000026; // rgba(0,0,0,0.15) 中阴影
+    in property <color> shadow-strong: #00000040; // rgba(0,0,0,0.25) 强阴影
+
+    // 边框颜色 - 更细腻的边框
+    in property <color> border: #00000010;  // rgba(0,0,0,0.06) 更浅的边框
+    in property <color> border-strong: #0000001A;  // rgba(0,0,0,0.1) 强边框
 }

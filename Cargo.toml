@@ -10,11 +10,16 @@ license = "GPL-3.0"
 # UI框架 - Slint
 slint = "1.8"
 
-# 异步运行时
-tokio = { version = "1.38", features = ["full"] }
+# 异步运行时 - 只启用必需的 features（减少编译大小和启动开销）
+tokio = { version = "1.38", features = [
+    "rt-multi-thread",
+    "sync",
+    "time",
+    "macros",
+] }
 
-# HTTP客户端
-reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+# HTTP客户端 - 建议全局共享以复用连接池
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "cookies"] }
 
 # OAuth2
 oauth2 = "4.4"
@@ -51,13 +56,25 @@ chrono = { version = "0.4", features = ["serde"] }
 base64 = "0.22"
 url = "2.5"
 dirs = "5.0"
+once_cell = "1.20"                                 # 懒初始化单例（用于全局 HTTP 客户端）
+
+# 屏幕尺寸检测（跨平台、轻量）
+screen_size = "0.1.0"
+
 
 [build-dependencies]
 slint-build = "1.8"
 
+# Windows 资源嵌入 (用于设置 exe 图标)
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1"
+
 [profile.release]
-opt-level = 'z'         # 体积优化
-lto = true              # 链接时优化
-codegen-units = 1       # 单编译单元
-strip = true            # 移除调试符号
-panic = 'abort'         # 减小panic处理代码
+opt-level = 'z'   # 以体积优先（兼顾性能），减小二进制体积
+lto = true        # 开启链接时优化（较保守的 LTO）
+codegen-units = 1 # 单编译单元
+strip = true      # 移除调试符号
+panic = 'abort'   # 减小panic处理代码
+
+[profile.dev]
+opt-level = 1 # 开发构建也进行基础优化（快速检测错误）

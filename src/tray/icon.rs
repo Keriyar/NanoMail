@@ -6,23 +6,20 @@ use tray_icon::Icon;
 
 use super::events::TrayIconState; // 保留以兼容现有接口
 
+/// 编译时嵌入托盘图标文件（避免运行时依赖外部文件）
+const ICON_BYTES: &[u8] = include_bytes!("../../assets/icons/NanoMail.ico");
+
 /// 加载托盘图标(忽略状态,始终使用 NanoMail.ico)
 pub fn load_icon(_state: TrayIconState) -> Result<Icon> {
-    const ICON_PATH: &str = "assets/icons/NanoMail.ico";
-
-    load_icon_from_file(ICON_PATH)
+    load_icon_from_memory(ICON_BYTES)
 }
 
-/// 从图像文件加载图标（支持 PNG/ICO 等格式）
-fn load_icon_from_file(path: &str) -> Result<Icon> {
-    tracing::debug!("加载托盘图标: {}", path);
+/// 从内存加载图标（支持 PNG/ICO 等格式）
+fn load_icon_from_memory(img_bytes: &[u8]) -> Result<Icon> {
+    tracing::debug!("从嵌入资源加载托盘图标（{} bytes）", img_bytes.len());
 
-    // 读取文件内容
-    let img_bytes = std::fs::read(path)
-        .map_err(|e| anyhow::anyhow!("图标文件读取失败 [{}]: {}", path, e))?;
-
-    // 使用 image crate 从内存解码（自动检测格式，忽略扩展名）
-    let img = image::load_from_memory(&img_bytes)
+    // 使用 image crate 从内存解码（自动检测格式）
+    let img = image::load_from_memory(img_bytes)
         .map_err(|e| anyhow::anyhow!("图标解码失败: {}", e))?;
 
     let rgba = img.to_rgba8();
@@ -31,6 +28,6 @@ fn load_icon_from_file(path: &str) -> Result<Icon> {
     let icon = Icon::from_rgba(rgba.into_raw(), width, height)
         .map_err(|e| anyhow::anyhow!("图标创建失败: {:?}", e))?;
 
-    tracing::info!("✓ 成功加载托盘图标: {}", path);
+    tracing::info!("✓ 成功加载托盘图标（{}x{}）", width, height);
     Ok(icon)
 }

@@ -35,11 +35,13 @@ pub fn run_event_loop(menu_ids: super::menu::MenuIds, tx: mpsc::Sender<TrayComma
     loop {
         // 检查菜单事件
         if let Ok(event) = menu_channel.try_recv() {
+            tracing::debug!("托盘菜单事件: {:?}", event);
             handle_menu_event(event, &menu_ids, &tx);
         }
 
         // 检查托盘图标事件
         if let Ok(event) = tray_channel.try_recv() {
+            tracing::debug!("托盘图标事件: {:?}", event);
             handle_tray_event(event, &tx);
         }
 
@@ -53,23 +55,40 @@ fn handle_menu_event(
     menu_ids: &super::menu::MenuIds,
     tx: &mpsc::Sender<TrayCommand>,
 ) {
+    // 记录完整的事件信息
+    tracing::info!("收到托盘菜单事件: {:?}", event);
+
     let menu_id = event.id;
 
+    // 直接比较菜单 ID，不再依赖字符串匹配
     if menu_id == menu_ids.open_gmail {
-        tx.send(TrayCommand::OpenGmail).ok();
+        tracing::info!("菜单事件: 打开 Gmail");
+        if let Err(e) = tx.send(TrayCommand::OpenGmail) {
+            tracing::error!("发送 OpenGmail 命令失败: {:?}", e);
+        }
     } else if menu_id == menu_ids.about {
-        tx.send(TrayCommand::ShowAbout).ok();
+        tracing::info!("菜单事件: 关于");
+        if let Err(e) = tx.send(TrayCommand::ShowAbout) {
+            tracing::error!("发送 ShowAbout 命令失败: {:?}", e);
+        }
     } else if menu_id == menu_ids.quit {
-        tx.send(TrayCommand::Exit).ok();
+        tracing::info!("菜单事件: 退出");
+        if let Err(e) = tx.send(TrayCommand::Exit) {
+            tracing::error!("发送 Exit 命令失败: {:?}", e);
+        }
+    } else {
+        tracing::warn!("未识别的菜单 ID: {:?}", menu_id);
     }
 }
 
 fn handle_tray_event(event: TrayIconEvent, tx: &mpsc::Sender<TrayCommand>) {
+    tracing::debug!("handle_tray_event: {:?}", event);
     if let TrayIconEvent::Click {
         button: tray_icon::MouseButton::Left,
         ..
     } = event
     {
+        tracing::debug!("托盘左键点击 -> ToggleWindow");
         tx.send(TrayCommand::ToggleWindow).ok();
     }
 }

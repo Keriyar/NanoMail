@@ -2,6 +2,9 @@
 
 use slint::{Image, SharedString};
 
+/// 编译时嵌入占位头像（避免运行时依赖外部文件）
+const PLACEHOLDER_AVATAR_BYTES: &[u8] = include_bytes!("../../assets/icons/placeholder-avatar.svg");
+
 /// Account 结构体（对应 Slint 的 Account struct）
 #[derive(Clone, Debug)]
 pub struct Account {
@@ -41,26 +44,29 @@ impl Account {
     }
 }
 
+/// 加载占位头像（从嵌入的资源）
+fn load_placeholder_avatar() -> Image {
+    match Image::load_from_svg_data(PLACEHOLDER_AVATAR_BYTES) {
+        Ok(img) => img,
+        Err(e) => {
+            tracing::warn!("加载嵌入的占位头像失败: {}", e);
+            Image::default()
+        }
+    }
+}
+
 /// 将 Rust Account 转换为 Slint Account
 impl From<Account> for crate::Account {
     fn from(account: Account) -> Self {
-        // 尝试将本地路径转换为 Slint Image；失败时使用项目占位图
+        // 尝试将本地路径转换为 Slint Image；失败时使用嵌入的占位图
         let avatar_image: Image = if account.avatar_url.is_empty() {
-            match Image::load_from_path(std::path::Path::new("assets/icons/placeholder-avatar.svg"))
-            {
-                Ok(img) => img,
-                Err(_) => Image::default(),
-            }
+            load_placeholder_avatar()
         } else {
             match Image::load_from_path(std::path::Path::new(&account.avatar_url)) {
                 Ok(img) => img,
-                Err(_) => {
-                    match Image::load_from_path(std::path::Path::new(
-                        "assets/icons/placeholder-avatar.svg",
-                    )) {
-                        Ok(img2) => img2,
-                        Err(_) => Image::default(),
-                    }
+                Err(e) => {
+                    tracing::warn!("加载头像失败 [{}]: {}", account.avatar_url, e);
+                    load_placeholder_avatar()
                 }
             }
         };

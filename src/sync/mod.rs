@@ -10,8 +10,8 @@ use tokio::time::interval;
 use crate::config::storage;
 use crate::mail::gmail::{self, AccountSyncInfo};
 
-/// 同步间隔（5分钟）
-const SYNC_INTERVAL_SECS: u64 = 300;
+/// 同步间隔（3分钟）
+const SYNC_INTERVAL_SECS: u64 = 180;
 
 /// 同步引擎
 pub struct SyncEngine {
@@ -42,7 +42,7 @@ impl SyncEngine {
     /// * `sync_callback` - 同步完成后的回调函数，接收账户邮箱和同步信息
     pub fn start<F>(&self, sync_callback: F)
     where
-        F: Fn(String, AccountSyncInfo) + Send + 'static,
+        F: Fn(String, Result<AccountSyncInfo, String>) + Send + 'static,
     {
         let running = self.running.clone();
         let handle = self.rt_handle.clone();
@@ -62,9 +62,9 @@ impl SyncEngine {
         handle.spawn(async move {
             let mut timer = interval(Duration::from_secs(SYNC_INTERVAL_SECS));
 
-            // 首次同步延迟10秒（等待UI初始化）
-            tracing::debug!("等待 10 秒后开始首次同步...");
-            tokio::time::sleep(Duration::from_secs(10)).await;
+            // 首次同步延迟3秒（等待UI初始化）
+            tracing::debug!("等待 3 秒后开始首次同步...");
+            tokio::time::sleep(Duration::from_secs(3)).await;
 
             loop {
                 // 检查运行标志
@@ -112,13 +112,25 @@ impl SyncEngine {
                                 }
                             }
 
-                            // 调用回调函数更新UI
-                            sync_callback(email, sync_info);
+                            // 调用回调函数更新UI（成功）
+                            sync_callback(email, Ok(sync_info));
                         }
                         Err(e) => {
-                            tracing::error!("❌ 同步账户 {} 失败: {}", email, e);
+                            let err_str = e.to_string();
+                            tracing::error!("❌ 同步账户 {} 失败: {}", email, err_str);
 
-                            // TODO: 如果是Token过期错误，尝试刷新Token
+                            // 调用回调，传递错误信息（由上层决定如何展示状态）
+                            sync_callback(email.clone(), Err(err_str.clone()));
+
+                            // 如果是网络检测最终失败（例如达到最大重试次数），
+                            // 则立即终止本轮同步，不再继续其他账户的同步。
+                            if err_str.contains("网络检测失败") || err_str.contains("网络不可用")
+                            {
+                                tracing::warn!(
+                                    "检测到网络不可用，终止本轮同步并将 N 标记为错误（红色）"
+                                );
+                                break;
+                            }
                         }
                     }
                 }
@@ -136,7 +148,7 @@ impl SyncEngine {
     /// * `sync_callback` - 同步完成后的回调函数
     pub async fn sync_now<F>(&self, sync_callback: F) -> Result<()>
     where
-        F: Fn(String, AccountSyncInfo) + Send,
+        F: Fn(String, Result<AccountSyncInfo, String>) + Send,
     {
         tracing::info!("🔄 立即同步所有账户...");
 
@@ -169,11 +181,20 @@ impl SyncEngine {
                         }
                     }
 
-                    // 调用回调函数更新UI
-                    sync_callback(email, sync_info);
+                    // 调用回调函数更新UI（成功）
+                    sync_callback(email, Ok(sync_info));
                 }
                 Err(e) => {
-                    tracing::error!("❌ 同步账户 {} 失败: {}", email, e);
+                    let err_str = e.to_string();
+                    tracing::error!("❌ 同步账户 {} 失败: {}", email, err_str);
+                    sync_callback(email.clone(), Err(err_str.clone()));
+
+                    // 如果是网络检测最终失败，则立即终止本轮同步
+                    if err_str.contains("网络检测失败") || err_str.contains("网络不可用")
+                    {
+                        tracing::warn!("检测到网络不可用（立即中止立即同步），本轮同步终止");
+                        break;
+                    }
                 }
             }
         }
@@ -210,6 +231,6 @@ mod tests {
 
     #[test]
     fn test_sync_interval() {
-        assert_eq!(SYNC_INTERVAL_SECS, 300); // 5分钟
+        assert_eq!(SYNC_INTERVAL_SECS, 180); // 3分钟
     }
 }

@@ -5,8 +5,62 @@ use anyhow::{Context, Result};
 use serde::Deserialize;
 
 use crate::mail::gmail::types::GmailAccount;
+use crate::utils::http_client;
 use std::path::PathBuf;
-use tokio::fs as async_fs;
+use std::time::Duration;
+use tokio::time::timeout;
+
+/// 在同步前检测网络可用性并在失败时按指数退避重试
+async fn ensure_network_available() -> Result<bool> {
+    const CHECK_URL: &str = "https://www.google.com/generate_204";
+    const MAX_ATTEMPTS: usize = 4;
+    const PER_REQUEST_TIMEOUT_SECS: u64 = 3;
+
+    let client = http_client::get_client();
+    let mut attempt = 0usize;
+    let mut delay_secs = 1u64;
+    let mut had_failure = false;
+
+    loop {
+        attempt += 1;
+        tracing::debug!("网络检测: 第 {} 次，尝试连接 {}", attempt, CHECK_URL);
+
+        match timeout(
+            Duration::from_secs(PER_REQUEST_TIMEOUT_SECS),
+            client.get(CHECK_URL).send(),
+        )
+        .await
+        {
+            Ok(Ok(resp)) => {
+                // 204 表示连接成功且无内容
+                if resp.status().is_success() {
+                    tracing::debug!("网络检测成功 (HTTP {})", resp.status());
+                    return Ok(had_failure);
+                } else {
+                    tracing::warn!("网络检测返回非成功状态: {}", resp.status());
+                    had_failure = true;
+                }
+            }
+            Ok(Err(e)) => {
+                tracing::warn!("网络检测请求失败: {}", e);
+                had_failure = true;
+            }
+            Err(_) => {
+                tracing::warn!("网络检测超时 ({}s)", PER_REQUEST_TIMEOUT_SECS);
+                had_failure = true;
+            }
+        }
+
+        if attempt >= MAX_ATTEMPTS {
+            tracing::error!("网络不可用：连续 {} 次检测失败", MAX_ATTEMPTS);
+            return Err(anyhow::anyhow!("网络不可用"));
+        }
+
+        tracing::info!("网络检测失败，{} 秒后重试（指数退避）...", delay_secs);
+        tokio::time::sleep(Duration::from_secs(delay_secs)).await;
+        delay_secs = std::cmp::min(delay_secs * 2, 30);
+    }
+}
 
 /// Google UserInfo 响应 (OIDC 标准)
 /// 替代了原本分散的 ProfileResponse 和 People API
@@ -45,7 +99,6 @@ struct MessageInfo {
 /// Gmail API 客户端
 pub struct GmailApiClient {
     access_token: String,
-    http_client: reqwest::Client,
 }
 
 impl GmailApiClient {
@@ -54,10 +107,7 @@ impl GmailApiClient {
     /// # Arguments
     /// * `access_token` - 已解密的 Access Token（明文）
     pub fn new(access_token: String) -> Self {
-        Self {
-            access_token,
-            http_client: reqwest::Client::new(),
-        }
+        Self { access_token }
     }
 
     /// 获取未读邮件数量
@@ -72,8 +122,7 @@ impl GmailApiClient {
         // 使用 q 参数查询 is:unread，只获取数量不获取完整消息
         let url = "https://gmail.googleapis.com/gmail/v1/users/me/messages";
 
-        let response = self
-            .http_client
+        let response = http_client::get_client()
             .get(url)
             .bearer_auth(&self.access_token)
             .query(&[
@@ -119,8 +168,7 @@ impl GmailApiClient {
         // 需要 scope: "https://www.googleapis.com/auth/userinfo.profile"
         let url = "https://www.googleapis.com/oauth2/v3/userinfo";
 
-        let response = self
-            .http_client
+        let response = http_client::get_client()
             .get(url)
             .bearer_auth(&self.access_token)
             .send()
@@ -216,7 +264,7 @@ async fn download_avatar_to_cache(url: &str, email: &str) -> Option<String> {
         }
     };
 
-    if let Err(e) = async_fs::create_dir_all(&cache_dir).await {
+    if let Err(e) = std::fs::create_dir_all(&cache_dir) {
         tracing::warn!("创建头像缓存目录失败: {}", e);
         return None;
     }
@@ -227,7 +275,7 @@ async fn download_avatar_to_cache(url: &str, email: &str) -> Option<String> {
 
     let path_buf: PathBuf = cache_dir.clone();
 
-    if let Err(e) = async_fs::write(&path_buf, &bytes).await {
+    if let Err(e) = std::fs::write(&path_buf, &bytes) {
         tracing::warn!("写入头像缓存失败: {}", e);
         return None;
     }
@@ -244,6 +292,7 @@ pub struct AccountSyncInfo {
     pub avatar_url: String,
     pub display_name: String,
     pub error_message: Option<String>, // 新增：错误消息（如果同步失败）
+    pub network_issue: bool,           // 新增：同步过程中是否曾检测到网络问题（即临时失败）
 }
 
 /// 同步账户信息（获取未读数和头像）
@@ -257,6 +306,16 @@ pub async fn sync_account_info(
     account: &GmailAccount,
 ) -> Result<(AccountSyncInfo, Option<GmailAccount>)> {
     tracing::info!("🔄 同步账户信息: {}", account.email);
+
+    // 同步前执行网络检测与重连（若网络不可用则进行重试）。
+    tracing::debug!("同步前执行网络检测...");
+    let had_network_issue = match ensure_network_available().await {
+        Ok(had) => had,
+        Err(e) => {
+            tracing::error!("网络检测最终失败，跳过同步 {}: {}", account.email, e);
+            return Err(e).context("网络检测失败，取消本次同步");
+        }
+    };
 
     // 使用 TokenManager 获取有效的 Access Token（自动刷新过期的 Token）
     let mut token_manager = crate::mail::gmail::token::TokenManager::new(account.clone())
@@ -403,6 +462,7 @@ pub async fn sync_account_info(
         avatar_url,
         display_name,
         error_message,
+        network_issue: had_network_issue,
     };
 
     Ok((sync_info, updated_account))

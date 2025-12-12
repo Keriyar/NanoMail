@@ -1,6 +1,7 @@
 // 系统托盘模块
 
 use anyhow::Result;
+use screen_size::get_primary_screen_size;
 use slint::ComponentHandle;
 use std::sync::mpsc;
 use tray_icon::{TrayIcon, TrayIconBuilder};
@@ -39,29 +40,48 @@ pub fn create_tray_icon(tx: mpsc::Sender<TrayCommand>) -> Result<TrayIcon> {
 
 /// 切换窗口显示/隐藏
 pub fn toggle_window<T: ComponentHandle>(window: &T) {
-    if window.window().is_visible() {
-        tracing::debug!("隐藏窗口");
+    let is_visible = window.window().is_visible();
+    tracing::info!("toggle_window: 当前窗口可见性 = {}", is_visible);
+
+    if is_visible {
+        tracing::info!("toggle_window: 隐藏窗口");
         window.hide().ok();
     } else {
-        tracing::debug!("显示窗口");
+        tracing::info!("toggle_window: 显示窗口");
         show_window_near_tray(window);
     }
 }
 
-/// 在托盘附近显示窗口（MVP: 固定右下角）
+/// 在托盘附近显示窗口（尽量放置在右下角，留出任务栏空间）
 pub fn show_window_near_tray<T: ComponentHandle>(window: &T) {
-    // TODO: 从 Windows API 获取真实屏幕尺寸
-    let screen_width = 1920;
-    let screen_height = 1080;
-    let window_width = 380;
-    let window_height = 400;
+    tracing::info!("show_window_near_tray: 开始显示窗口");
 
-    let x = screen_width - window_width - 20;
-    let y = screen_height - window_height - 80;
+    // 尝试动态获取主显示器分辨率，回退到默认值
+    let (screen_width, screen_height) = match get_primary_screen_size() {
+        Ok((w, h)) => (w as i32, h as i32),
+        Err(e) => {
+            tracing::warn!("无法获取屏幕尺寸: {}, 使用默认值 1920x1080", e);
+            (1920, 1080)
+        }
+    };
 
+    // 设计的窗口尺寸
+    let window_width = 380i32;
+    let window_height = 400i32;
+
+    // 在右下角上方显示（留出任务栏和边距）
+    let x = screen_width - window_width - 97;
+    let y = screen_height - window_height - 50;
+
+    tracing::info!("show_window_near_tray: 设置窗口位置 x={}, y={}", x, y);
     window
         .window()
         .set_position(slint::PhysicalPosition::new(x, y));
 
-    window.show().ok();
+    tracing::info!("show_window_near_tray: 调用 window.show()");
+    if let Err(e) = window.show() {
+        tracing::error!("show_window_near_tray: 显示窗口失败: {:?}", e);
+    } else {
+        tracing::info!("show_window_near_tray: 窗口已显示");
+    }
 }

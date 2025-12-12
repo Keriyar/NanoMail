@@ -11,17 +11,24 @@ export component Badge {
         background: type == "success"
             ? LightColors.badge-success
             : LightColors.badge-error;
-        border-radius: 12px;
+        border-radius: 14px;  // 完美圆角(高度的一半)
+
+        // macOS 风格轻微阴影
+        drop-shadow-blur: 6px;
+        drop-shadow-color: type == "success"
+            ? #34C75930  // 绿色半透明阴影
+            : #FF3B3030; // 红色半透明阴影
+        drop-shadow-offset-y: 2px;
 
         HorizontalLayout {
-            padding-left: 12px;
-            padding-right: 12px;
+            padding-left: 10px;
+            padding-right: 10px;
 
             Text {
                 text: count;
                 color: #FFFFFF;
                 font-size: 14px;
-                font-weight: 700;
+                font-weight: 700;  // macOS 粗体标准
                 vertical-alignment: center;
                 horizontal-alignment: center;
             }
