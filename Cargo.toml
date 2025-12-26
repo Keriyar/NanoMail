@@ -8,7 +8,7 @@ license = "GPL-3.0"
 
 [dependencies]
 # UI框架 - Slint
-slint = "1.8"
+slint = { version = "1.8", features = ["renderer-winit-femtovg"] }
 
 # 异步运行时 - 只启用必需的 features（减少编译大小和启动开销）
 tokio = { version = "1.38", features = [

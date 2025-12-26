@@ -1,4 +1,4 @@
-#![windows_subsystem = "windows"]
+#![windows_subsystem = "windows"] // 临时禁用以查看日志
 
 // 导入 Slint 生成的代码
 slint::include_modules!();
@@ -56,6 +56,13 @@ fn main() -> Result<()> {
     tracing::debug!("应用状态初始化: Normal (绿色 N)");
     tracing::info!("app_status set -> normal (初始化)");
 
+    // 6.1 从配置加载并初始化主题
+    if let Ok(cfg) = config::load() {
+        let is_dark = cfg.app.theme == "dark";
+        Theme::get(&main_window).set_is_dark(is_dark);
+        tracing::info!("主题初始化: {}", if is_dark { "dark" } else { "light" });
+    }
+
     // 7. 创建系统托盘
     let _tray_handle = tray::create_tray_icon(tray_tx.clone())?;
 
@@ -69,7 +76,10 @@ fn main() -> Result<()> {
     sync_engine.start(move |email, res| {
         match res {
             Ok(sync_info) => {
-                tracing::debug!("收到同步回调: {} - 未读 {}", email, sync_info.unread_count);
+                tracing::info!(
+                    "[DEBUG-UNREAD] 回调收到: email={}, unread_count={}",
+                    email, sync_info.unread_count
+                );
 
                 // 更新UI（必须在事件循环中）
                 let weak = window_weak_for_sync.clone();
@@ -86,17 +96,6 @@ fn main() -> Result<()> {
                                 "账户 {} 同步过程中检测到网络问题",
                                 sync_info_cloned.email
                             );
-                        } else if sync_info_cloned.error_message.is_some() {
-                            // 如果同步信息中包含错误，显示黄色（Token 问题）
-                            // Slint 中黄色状态的标识为 "unread"
-                            window.set_app_status("unread".into());
-                            tracing::info!("app_status set -> unread (error_message)");
-                            tracing::warn!(
-                                "账户 {} 同步包含错误: {:?}",
-                                sync_info_cloned.email,
-                                sync_info_cloned.error_message
-                            );
-                        } else {
                             // 网络和 Token 均正常 -> 绿色
                             window.set_app_status("normal".into());
                         }
@@ -123,17 +122,9 @@ fn main() -> Result<()> {
                     if let Some(window) = weak.upgrade() {
                         update_account_sync_info(&window, info);
 
-                        // 网络不可用 -> 红色；否则视为 Token 或其他错误 -> 黄色
-                        if err_clone.contains("网络不可用") {
-                            window.set_app_status("error".into());
-                            tracing::info!(
-                                "app_status set -> error (callback Err contains 网络不可用)"
-                            );
-                        } else {
-                            // 其他错误（如 Token 问题）显示黄色（Slint 使用 "unread" 表示黄色）
-                            window.set_app_status("unread".into());
-                            tracing::info!("app_status set -> unread (callback Err other)");
-                        }
+                        // 网络不可用 -> 红色；Token或其他错误 -> 也是红色（用户要求）
+                        window.set_app_status("error".into());
+                        tracing::info!("app_status set -> error (callback Err: {})", err_clone);
                     }
                 })
                 .ok();
@@ -284,9 +275,27 @@ fn bind_callbacks(
 ) -> Result<()> {
     // 主题切换
     main_window.on_theme_toggled({
+        let weak = main_window.as_weak();
         move || {
             tracing::info!("[回调] 主题切换按钮被点击");
-            // TODO: v0.2.0 实现主题切换
+            if let Some(window) = weak.upgrade() {
+                // 切换主题
+                let current_is_dark = Theme::get(&window).get_is_dark();
+                let new_is_dark = !current_is_dark;
+                Theme::get(&window).set_is_dark(new_is_dark);
+                tracing::info!("主题切换: {} -> {}", 
+                    if current_is_dark { "dark" } else { "light" },
+                    if new_is_dark { "dark" } else { "light" }
+                );
+
+                // 持久化主题偏好
+                if let Ok(mut cfg) = config::load() {
+                    cfg.app.theme = if new_is_dark { "dark".to_string() } else { "light".to_string() };
+                    if let Err(e) = config::save(&cfg) {
+                        tracing::error!("保存主题配置失败: {}", e);
+                    }
+                }
+            }
         }
     });
 
@@ -438,8 +447,21 @@ fn update_account_sync_info(window: &MainWindow, sync_info: mail::gmail::Account
     for i in 0..accounts.row_count() {
         if let Some(mut acc) = accounts.row_data(i) {
             if acc.email.as_str() == sync_info.email {
-                // 更新未读数和头像
-                acc.unread_count = sync_info.unread_count as i32;
+                // 若同步成功，更新未读数；若失败则保持旧值（或者在 AccountSyncInfo 里处理逻辑）
+                // 当前逻辑：sync_info 包含即时数据。如果失败，external sync_info.unread_count 默认为0
+                // 但 callback 处理时手动构造了 unread_count=0 的 info
+                // 这里我们要判断：如果 error_message 存在，则忽略 unread_count 的更新，仅更新错误状态
+                if sync_info.error_message.is_none() {
+                    tracing::info!(
+                        "[DEBUG-UNREAD] UI更新前: 旧值={}, 新值={}",
+                        acc.unread_count, sync_info.unread_count
+                    );
+                    acc.unread_count = sync_info.unread_count as i32;
+                    tracing::info!(
+                        "[DEBUG-UNREAD] UI更新后: acc.unread_count={}",
+                        acc.unread_count
+                    );
+                }
                 if !sync_info.avatar_url.is_empty() {
                     match slint::Image::load_from_path(std::path::Path::new(&sync_info.avatar_url))
                     {

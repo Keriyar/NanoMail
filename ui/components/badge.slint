@@ -1,4 +1,4 @@
-import { LightColors } from "../themes/colors.slint";
+import { Theme } from "../themes/colors.slint";
 
 export component Badge {
     in property <int> count: 0;
@@ -9,8 +9,8 @@ export component Badge {
 
     Rectangle {
         background: type == "success"
-            ? LightColors.badge-success
-            : LightColors.badge-error;
+            ? Theme.badge-success
+            : Theme.badge-error;
         border-radius: 14px;  // 完美圆角(高度的一半)
 
         // macOS 风格轻微阴影
@@ -25,7 +25,7 @@ export component Badge {
             padding-right: 10px;
 
             Text {
-                text: count;
+                text: "\{count}";
                 color: #FFFFFF;
                 font-size: 14px;
                 font-weight: 700;  // macOS 粗体标准
@@ -35,3 +35,4 @@ export component Badge {
         }
     }
 }
+

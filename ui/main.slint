@@ -1,5 +1,6 @@
 import { VerticalBox, ScrollView } from "std-widgets.slint";
-import { LightColors } from "themes/colors.slint";
+import { Theme } from "themes/colors.slint";
+export { Theme }
 import { IconButton } from "components/icon_button.slint";
 import { Badge } from "components/badge.slint";
 import { AccountCard } from "components/account_card.slint";
@@ -33,11 +34,11 @@ export component MainWindow inherits Window {
     // ===== 颜色计算函数 =====
     pure function get-status-color() -> color {
         if (app-status == "unread") {
-            return LightColors.status-unread;
+            return Theme.status-unread;
         } else if (app-status == "error") {
-            return LightColors.status-error;
+            return Theme.status-error;
         } else {
-            return LightColors.status-normal;
+            return Theme.status-normal;
         }
     }
 
@@ -48,16 +49,16 @@ export component MainWindow inherits Window {
     no-frame: true;
     background: transparent;  // 透明背景以支持圆角和阴影效果
 
-    // ===== 主容器 - macOS 磨砂玻璃风格 =====
+    // ===== 主容器 =====
     Rectangle {
-        background: LightColors.background;
-        border-radius: 20px;  // macOS Big Sur/Monterey 标准圆角
+        background: Theme.background;
+        border-radius: 0;  // 直角窗口
         border-width: 0.5px;
-        border-color: LightColors.border;
+        border-color: Theme.border;
 
         // 多层阴影系统 - 模拟 macOS 真实阴影
         drop-shadow-blur: 48px;
-        drop-shadow-color: LightColors.shadow-light;
+        drop-shadow-color: Theme.shadow-light;
         drop-shadow-offset-y: 16px;
 
         VerticalLayout {
@@ -69,45 +70,51 @@ export component MainWindow inherits Window {
                 height: 60px;
                 background: transparent;  // 磨砂效果
 
-                HorizontalLayout {
-                    padding-left: 20px;
-                    padding-right: 20px;
-                    spacing: 12px;
+                VerticalLayout {
+                    alignment: center;  // 垂直居中
 
-                    // "Nano Notification" 标题("N"动态着色)
                     HorizontalLayout {
-                        spacing: 0px;
+                        padding-left: 20px;
+                        padding-right: 20px;
+                        spacing: 12px;
 
-                        Text {
-                            text: "N";
-                            color: get-status-color();
-                            font-size: 18px;
-                            font-weight: 600;  // macOS 标准粗细
-                            vertical-alignment: center;
+                        // "Nano Notification" 标题("N"动态着色)
+                        HorizontalLayout {
+                            spacing: 0px;
+
+                            Text {
+                                text: "N";
+                                color: get-status-color();
+                                font-size: 18px;
+                                font-weight: 600;  // macOS 标准粗细
+                                vertical-alignment: center;
+                            }
+
+                            Text {
+                                text: "ano Notification";
+                                color: Theme.text-primary;
+                                font-size: 18px;
+                                font-weight: 600;
+                                vertical-alignment: center;
+                            }
                         }
 
-                        Text {
-                            text: "ano Notification";
-                            color: LightColors.text-primary;
-                            font-size: 18px;
-                            font-weight: 600;
-                            vertical-alignment: center;
+                        // 弹簧
+                        Rectangle { }
+
+                        // 主题切换按钮（亮色显示月亮，暗色显示太阳）
+                        IconButton {
+                            icon: Theme.is-dark
+                                ? @image-url("../assets/icons/sun.svg")
+                                : @image-url("../assets/icons/moon.svg");
+                            clicked => { root.theme-toggled(); }
                         }
-                    }
 
-                    // 弹簧
-                    Rectangle { }
-
-                    // 月亮图标(主题切换)
-                    IconButton {
-                        icon: @image-url("../assets/icons/moon.svg");
-                        clicked => { root.theme-toggled(); }
-                    }
-
-                    // 信封图标(打开Gmail)
-                    IconButton {
-                        icon: @image-url("../assets/icons/envelope.svg");
-                        clicked => { root.open-gmail-clicked(); }
+                        // 信封图标(打开Gmail)
+                        IconButton {
+                            icon: @image-url("../assets/icons/envelope.svg");
+                            clicked => { root.open-gmail-clicked(); }
+                        }
                     }
                 }
             }
@@ -115,7 +122,7 @@ export component MainWindow inherits Window {
             // ===== 分隔线 =====
             Rectangle {
                 height: 1px;
-                background: LightColors.separator;
+                background: Theme.separator;
             }
 
             // ===== 账户列表区域 =====
@@ -135,7 +142,7 @@ export component MainWindow inherits Window {
             // ===== 分隔线 =====
             Rectangle {
                 height: 1px;
-                background: LightColors.separator;
+                background: Theme.separator;
             }
 
             // ===== 操作栏 (60px) =====

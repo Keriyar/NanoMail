@@ -85,6 +85,7 @@ fn handle_tray_event(event: TrayIconEvent, tx: &mpsc::Sender<TrayCommand>) {
     tracing::debug!("handle_tray_event: {:?}", event);
     if let TrayIconEvent::Click {
         button: tray_icon::MouseButton::Left,
+        button_state: tray_icon::MouseButtonState::Up,  // 只在释放时触发，避免按下+释放双重触发
         ..
     } = event
     {

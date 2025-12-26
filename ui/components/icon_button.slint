@@ -1,4 +1,4 @@
-import { LightColors } from "../themes/colors.slint";
+import { Theme } from "../themes/colors.slint";
 
 export component IconButton {
     in property <image> icon;
@@ -14,12 +14,12 @@ export component IconButton {
     // macOS 风格的淡入淡出动画
     states [
         hover when touch-area.has-hover && enabled: {
-            background.background: LightColors.button-hover;
+            background.background: Theme.button-hover;
             background.opacity: 1.0;
             icon-image.opacity: 0.8;
         }
         pressed when touch-area.pressed && enabled: {
-            background.background: LightColors.button-active;
+            background.background: Theme.button-active;
             background.opacity: 1.0;
             icon-image.opacity: 0.6;
         }
@@ -48,7 +48,7 @@ export component IconButton {
         source: icon;
         width: icon-size;
         height: icon-size;
-        colorize: enabled ? LightColors.text-secondary : LightColors.text-tertiary;
+        colorize: enabled ? Theme.text-secondary : Theme.text-tertiary;
         opacity: 1.0;
 
         animate opacity {

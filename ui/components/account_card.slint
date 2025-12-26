@@ -1,4 +1,4 @@
-import { LightColors } from "../themes/colors.slint";
+import { Theme } from "../themes/colors.slint";
 import { Badge } from "badge.slint";
 
 // 本地定义 Account 结构体(与 main.slint 保持一致)
@@ -36,10 +36,10 @@ export component AccountCard {
     // 悬停状态
     states [
         hover when touch-area.has-hover: {
-            background-rect.background: LightColors.button-hover;
+            background-rect.background: Theme.button-hover;
         }
         pressed when touch-area.pressed: {
-            background-rect.background: LightColors.button-active;
+            background-rect.background: Theme.button-active;
         }
     ]
 
@@ -55,12 +55,12 @@ export component AccountCard {
             height: 48px;
             border-radius: 24px;  // 完美圆形
             border-width: 1px;
-            border-color: LightColors.separator;
+            border-color: Theme.separator;
             clip: true;
 
             // 轻微阴影增强立体感
             drop-shadow-blur: 8px;
-            drop-shadow-color: LightColors.shadow-light;
+            drop-shadow-color: Theme.shadow-light;
             drop-shadow-offset-y: 2px;
 
             // 显示 avatar-image(由 Rust 端提供:实际头像或占位符)
@@ -83,7 +83,7 @@ export component AccountCard {
 
             Text {
                 text: account.display-name;
-                color: LightColors.text-primary;
+                color: Theme.text-primary;
                 font-size: 16px;
                 font-weight: 600;  // macOS 标准粗细
                 horizontal-alignment: left;
@@ -92,7 +92,7 @@ export component AccountCard {
 
             Text {
                 text: account.email;
-                color: LightColors.text-secondary;
+                color: Theme.text-secondary;
                 font-size: 13px;
                 font-weight: 400;
                 horizontal-alignment: left;
@@ -103,10 +103,12 @@ export component AccountCard {
         // 弹簧(推向右侧)
         Rectangle { }
 
-        // 未读徽章
-        if account.unread-count > 0: Badge {
+        // 状态徽章：显示未读消息数或错误状态
+        Badge {
             count: account.unread-count;
+            // 逻辑：若存在错误则显示错误样式，否则显示成功样式
             type: account.has-error ? "error" : "success";
+            // 始终显示 Badge（包括未读数为 0 时）
         }
     }
 }

@@ -10,8 +10,8 @@ use tokio::time::interval;
 use crate::config::storage;
 use crate::mail::gmail::{self, AccountSyncInfo};
 
-/// 同步间隔（3分钟）
-const SYNC_INTERVAL_SECS: u64 = 180;
+/// 同步间隔（2秒）
+const SYNC_INTERVAL_SECS: u64 = 2;
 
 /// 同步引擎
 pub struct SyncEngine {
@@ -111,6 +111,12 @@ impl SyncEngine {
                                     tracing::error!("❌ 保存刷新后的账户失败: {}", e);
                                 }
                             }
+
+                            tracing::info!(
+                                "[DEBUG-UNREAD] SyncEngine 准备调用回调: email={}, unread_count={}",
+                                sync_info.email,
+                                sync_info.unread_count
+                            );
 
                             // 调用回调函数更新UI（成功）
                             sync_callback(email, Ok(sync_info));
@@ -231,6 +237,6 @@ mod tests {
 
     #[test]
     fn test_sync_interval() {
-        assert_eq!(SYNC_INTERVAL_SECS, 180); // 3分钟
+        assert_eq!(SYNC_INTERVAL_SECS, 2); // 2秒
     }
 }

@@ -96,6 +96,18 @@ struct MessageInfo {
     thread_id: String,
 }
 
+/// Gmail 标签信息（用于获取精确未读数）
+#[derive(Debug, Deserialize)]
+struct LabelInfo {
+    /// 标签中的未读消息数
+    #[serde(rename = "messagesUnread")]
+    messages_unread: Option<u32>,
+
+    /// 标签中的总消息数
+    #[serde(rename = "messagesTotal")]
+    messages_total: Option<u32>,
+}
+
 /// Gmail API 客户端
 pub struct GmailApiClient {
     access_token: String,
@@ -112,26 +124,23 @@ impl GmailApiClient {
 
     /// 获取未读邮件数量
     ///
-    /// 使用 Gmail API 的 messages.list 接口，查询标签为 UNREAD 的邮件数量
+    /// 使用 Gmail Labels API 获取 INBOX 标签的 messagesUnread 字段
+    /// 这比 messages.list 的 resultSizeEstimate 更精确
     ///
     /// # Returns
     /// 返回未读邮件数量
     pub async fn get_unread_count(&self) -> Result<u32> {
         tracing::debug!("正在获取未读邮件数量...");
 
-        // 使用 q 参数查询 is:unread，只获取数量不获取完整消息
-        let url = "https://gmail.googleapis.com/gmail/v1/users/me/messages";
+        // 使用 Labels API 获取 INBOX 标签信息（包含精确的未读数）
+        let url = "https://gmail.googleapis.com/gmail/v1/users/me/labels/INBOX";
 
         let response = http_client::get_client()
             .get(url)
             .bearer_auth(&self.access_token)
-            .query(&[
-                ("q", "is:unread in:inbox"),
-                ("maxResults", "1"), // 只需要数量，不需要具体消息
-            ])
             .send()
             .await
-            .context("请求未读邮件列表失败")?;
+            .context("请求 INBOX 标签信息失败")?;
 
         if !response.status().is_success() {
             let status = response.status();
@@ -141,15 +150,23 @@ impl GmailApiClient {
                 anyhow::bail!("Token 已过期，需要刷新");
             }
 
-            anyhow::bail!("Gmail API (未读数) 返回错误 {}: {}", status, error_text);
+            anyhow::bail!("Gmail Labels API 返回错误 {}: {}", status, error_text);
         }
 
-        let messages_resp: MessagesResponse =
-            response.json().await.context("解析未读邮件响应失败")?;
+        // 获取原始响应体用于调试
+        let response_text = response.text().await.context("读取响应体失败")?;
+        tracing::info!("[DEBUG-UNREAD] Gmail Labels API 原始响应: {}", response_text);
 
-        let unread_count = messages_resp.result_size_estimate.unwrap_or(0);
+        let label_info: LabelInfo =
+            serde_json::from_str(&response_text).context("解析标签信息响应失败")?;
 
-        tracing::debug!("✅ 未读邮件数量: {}", unread_count);
+        let unread_count = label_info.messages_unread.unwrap_or(0);
+
+        tracing::info!(
+            "[DEBUG-UNREAD] messagesUnread = {:?}, 最终 unread_count = {}",
+            label_info.messages_unread,
+            unread_count
+        );
 
         Ok(unread_count)
     }
@@ -446,24 +463,26 @@ pub async fn sync_account_info(
     };
 
     tracing::info!(
-        "✅ 同步完成: {} - 未读 {} 封{}",
+        "[DEBUG-UNREAD] sync_account_info 完成: email={}, unread_count={}, error={:?}",
         email,
         unread_count,
-        if error_message.is_some() {
-            " (含错误)"
-        } else {
-            ""
-        }
+        error_message
     );
 
     let sync_info = AccountSyncInfo {
-        email,
+        email: email.clone(),
         unread_count,
         avatar_url,
         display_name,
         error_message,
         network_issue: had_network_issue,
     };
+
+    tracing::info!(
+        "[DEBUG-UNREAD] 返回 AccountSyncInfo: email={}, unread_count={}",
+        sync_info.email,
+        sync_info.unread_count
+    );
 
     Ok((sync_info, updated_account))
 }
