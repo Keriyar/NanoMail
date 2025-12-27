@@ -6,7 +6,7 @@ fn main() {
     #[cfg(windows)]
     {
         let mut res = winres::WindowsResource::new();
-        res.set_icon("F:\\Project\\NanoMail\\assets\\icons\\NanoMail.ico"); // 设置应用图标
+        res.set_icon("assets/icons/NanoMail.ico"); // 设置应用图标
         res.compile().unwrap();
     }
 }

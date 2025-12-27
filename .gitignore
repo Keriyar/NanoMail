@@ -8,10 +8,11 @@
 
 # 配置文件（包含敏感信息）
 config.toml
-*.env
 CLAUDE.md
-.claude
 GEMINI.md
+.claude
+*.env
+
 
 # 日志
 *.log
