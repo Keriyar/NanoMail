@@ -14,17 +14,9 @@ pub enum TrayCommand {
     Exit,
 }
 
-/// Slint 窗口 → 托盘的命令（用于更新图标状态）
-#[derive(Debug, Clone)]
-pub enum WindowCommand {
-    UpdateIcon(TrayIconState),
-}
-
 #[derive(Debug, Clone, Copy)]
 pub enum TrayIconState {
     Normal,
-    Unread,
-    Error,
 }
 
 /// 运行托盘事件循环

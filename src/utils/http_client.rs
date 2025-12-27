@@ -14,7 +14,7 @@ use std::time::Duration;
 pub static HTTP_CLIENT: Lazy<Client> = Lazy::new(|| {
     Client::builder()
         // 连接池配置
-        .pool_max_idle_per_host(10) // 每个主机最多保留 10 个空闲连接
+        .pool_max_idle_per_host(2) // 每个主机最多保留 2 个空闲连接（只需连接 Google 服务器）
         .pool_idle_timeout(Duration::from_secs(300)) // 连接空闲 5 分钟后关闭
         // 超时配置
         .timeout(Duration::from_secs(30)) // 整体请求超时 30 秒

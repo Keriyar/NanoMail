@@ -76,36 +76,12 @@ pub struct GoogleUserInfo {
     pub email: String,
 }
 
-/// Gmail 邮件列表响应
-#[derive(Debug, Deserialize)]
-struct MessagesResponse {
-    messages: Option<Vec<MessageInfo>>,
-
-    #[serde(rename = "nextPageToken")]
-    next_page_token: Option<String>,
-
-    #[serde(rename = "resultSizeEstimate")]
-    result_size_estimate: Option<u32>,
-}
-
-/// 邮件基本信息
-#[derive(Debug, Deserialize)]
-struct MessageInfo {
-    id: String,
-    #[serde(rename = "threadId")]
-    thread_id: String,
-}
-
 /// Gmail 标签信息（用于获取精确未读数）
 #[derive(Debug, Deserialize)]
 struct LabelInfo {
     /// 标签中的未读消息数
     #[serde(rename = "messagesUnread")]
     messages_unread: Option<u32>,
-
-    /// 标签中的总消息数
-    #[serde(rename = "messagesTotal")]
-    messages_total: Option<u32>,
 }
 
 /// Gmail API 客户端

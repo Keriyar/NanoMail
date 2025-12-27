@@ -10,7 +10,7 @@ mod events;
 mod icon;
 mod menu;
 
-pub use events::{TrayCommand, TrayIconState, WindowCommand};
+pub use events::{TrayCommand, TrayIconState};
 
 /// 创建系统托盘图标
 pub fn create_tray_icon(tx: mpsc::Sender<TrayCommand>) -> Result<TrayIcon> {

@@ -1,17 +1,18 @@
 /// 邮件同步引擎
 ///
 /// 负责定期同步所有账户的邮件信息（未读数、头像等）
+/// 支持后台定时轮询 + 手动触发立即同步
 use anyhow::Result;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::RwLock;
+use tokio::sync::{Notify, RwLock};
 use tokio::time::interval;
 
 use crate::config::storage;
 use crate::mail::gmail::{self, AccountSyncInfo};
 
-/// 同步间隔（2秒）
-const SYNC_INTERVAL_SECS: u64 = 2;
+/// 同步间隔（10秒后台轮询）
+const SYNC_INTERVAL_SECS: u64 = 10;
 
 /// 同步引擎
 pub struct SyncEngine {
@@ -20,6 +21,9 @@ pub struct SyncEngine {
 
     /// Tokio 运行时句柄
     rt_handle: tokio::runtime::Handle,
+
+    /// 立即同步触发器（使用 Notify 实现轻量级信号）
+    trigger: Arc<Notify>,
 }
 
 impl SyncEngine {
@@ -31,12 +35,21 @@ impl SyncEngine {
         Self {
             running: Arc::new(RwLock::new(false)),
             rt_handle,
+            trigger: Arc::new(Notify::new()),
         }
+    }
+
+    /// 触发立即同步（非阻塞，可从任意线程调用）
+    ///
+    /// 当窗口显示时调用此方法，会立即唤醒同步循环执行一次同步
+    pub fn trigger_sync(&self) {
+        tracing::info!("🔔 收到手动同步触发信号");
+        self.trigger.notify_one();
     }
 
     /// 启动同步引擎
     ///
-    /// 会在后台线程中定期同步所有账户
+    /// 会在后台线程中定期同步所有账户，同时监听手动触发信号
     ///
     /// # Arguments
     /// * `sync_callback` - 同步完成后的回调函数，接收账户邮箱和同步信息
@@ -45,6 +58,7 @@ impl SyncEngine {
         F: Fn(String, Result<AccountSyncInfo, String>) + Send + 'static,
     {
         let running = self.running.clone();
+        let trigger = self.trigger.clone();
         let handle = self.rt_handle.clone();
 
         // 检查是否已经在运行
@@ -56,9 +70,12 @@ impl SyncEngine {
         // 标记为运行中
         *running.blocking_write() = true;
 
-        tracing::info!("🚀 启动同步引擎（间隔: {} 秒）", SYNC_INTERVAL_SECS);
+        tracing::info!(
+            "🚀 启动同步引擎（后台轮询: {}秒 + 手动触发）",
+            SYNC_INTERVAL_SECS
+        );
 
-        // 在 Tokio 运行时内部以异步任务启动同步循环（避免跨线程 block_on 导致 runtime 在关闭时出错）
+        // 在 Tokio 运行时内部以异步任务启动同步循环
         handle.spawn(async move {
             let mut timer = interval(Duration::from_secs(SYNC_INTERVAL_SECS));
 
@@ -73,10 +90,19 @@ impl SyncEngine {
                     break;
                 }
 
-                timer.tick().await;
+                // 使用 select! 同时监听定时器和手动触发信号
+                tokio::select! {
+                    _ = timer.tick() => {
+                        tracing::info!("⏰ 定时器触发同步...");
+                    }
+                    _ = trigger.notified() => {
+                        tracing::info!("🔔 手动触发立即同步...");
+                        // 重置定时器，避免刚手动同步完又触发定时同步
+                        timer.reset();
+                    }
+                }
 
-                tracing::info!("⏰ 开始定期同步...");
-
+                // ========== 执行同步（内联逻辑） ==========
                 // 加载所有账户
                 let accounts = match storage::load_accounts() {
                     Ok(accounts) => accounts,
@@ -93,7 +119,7 @@ impl SyncEngine {
 
                 tracing::info!("正在同步 {} 个账户...", accounts.len());
 
-                // 并行同步所有账户
+                // 逐个同步账户
                 for account in accounts {
                     let email = account.email.clone();
 
@@ -125,13 +151,11 @@ impl SyncEngine {
                             let err_str = e.to_string();
                             tracing::error!("❌ 同步账户 {} 失败: {}", email, err_str);
 
-                            // 调用回调，传递错误信息（由上层决定如何展示状态）
+                            // 调用回调，传递错误信息
                             sync_callback(email.clone(), Err(err_str.clone()));
 
-                            // 如果是网络检测最终失败（例如达到最大重试次数），
-                            // 则立即终止本轮同步，不再继续其他账户的同步。
-                            if err_str.contains("网络检测失败") || err_str.contains("网络不可用")
-                            {
+                            // 如果是网络检测最终失败，则立即终止本轮同步
+                            if err_str.contains("网络检测失败") || err_str.contains("网络不可用") {
                                 tracing::warn!(
                                     "检测到网络不可用，终止本轮同步并将 N 标记为错误（红色）"
                                 );
@@ -146,9 +170,7 @@ impl SyncEngine {
         });
     }
 
-    /// 立即执行一次同步
-    ///
-    /// 不等待定时器，立即同步所有账户
+    /// 立即执行一次同步（异步版本，适用于已在 async 上下文中）
     ///
     /// # Arguments
     /// * `sync_callback` - 同步完成后的回调函数
@@ -168,7 +190,6 @@ impl SyncEngine {
 
         tracing::info!("正在同步 {} 个账户...", accounts.len());
 
-        // 并行同步所有账户
         for account in accounts {
             let email = account.email.clone();
 
@@ -180,14 +201,12 @@ impl SyncEngine {
                         sync_info.unread_count
                     );
 
-                    // 如果 Token 被刷新，保存更新后的账户
                     if let Some(updated) = updated_account {
                         if let Err(e) = storage::save_account(&updated) {
                             tracing::error!("❌ 保存刷新后的账户失败: {}", e);
                         }
                     }
 
-                    // 调用回调函数更新UI（成功）
                     sync_callback(email, Ok(sync_info));
                 }
                 Err(e) => {
@@ -195,10 +214,8 @@ impl SyncEngine {
                     tracing::error!("❌ 同步账户 {} 失败: {}", email, err_str);
                     sync_callback(email.clone(), Err(err_str.clone()));
 
-                    // 如果是网络检测最终失败，则立即终止本轮同步
-                    if err_str.contains("网络检测失败") || err_str.contains("网络不可用")
-                    {
-                        tracing::warn!("检测到网络不可用（立即中止立即同步），本轮同步终止");
+                    if err_str.contains("网络检测失败") || err_str.contains("网络不可用") {
+                        tracing::warn!("检测到网络不可用，本轮同步终止");
                         break;
                     }
                 }
@@ -206,7 +223,6 @@ impl SyncEngine {
         }
 
         tracing::info!("✅ 立即同步完成");
-
         Ok(())
     }
 
@@ -237,6 +253,6 @@ mod tests {
 
     #[test]
     fn test_sync_interval() {
-        assert_eq!(SYNC_INTERVAL_SECS, 2); // 2秒
+        assert_eq!(SYNC_INTERVAL_SECS, 10); // 10秒
     }
 }

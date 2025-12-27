@@ -24,7 +24,6 @@ fn main() -> Result<()> {
 
     // 3. 创建通信通道
     let (tray_tx, tray_rx) = mpsc::channel::<tray::TrayCommand>();
-    let (window_tx, _window_rx) = mpsc::channel::<tray::WindowCommand>();
 
     // 4. 创建 Slint UI
     let main_window = MainWindow::new()?;
@@ -67,7 +66,7 @@ fn main() -> Result<()> {
     let _tray_handle = tray::create_tray_icon(tray_tx.clone())?;
 
     // 8. 绑定 Slint 回调（传入 Tokio 运行时）
-    bind_callbacks(&main_window, &window_tx, rt_handle.clone())?;
+    bind_callbacks(&main_window, rt_handle.clone())?;
 
     // 9. 启动同步引擎
     let sync_engine = Arc::new(sync::SyncEngine::new(rt_handle.clone()));
@@ -218,15 +217,21 @@ fn handle_tray_commands(
         }
 
         // 确保 UI 更新在主线程执行
+        let sync_engine_clone = sync_engine.clone();
         let result = slint::invoke_from_event_loop(move || {
             if let Some(window) = weak.upgrade() {
                 match cmd {
                     tray::TrayCommand::ToggleWindow => {
                         tracing::info!("处理托盘命令: ToggleWindow");
+                        // 如果窗口将要显示，触发立即同步
+                        if !window.window().is_visible() {
+                            sync_engine_clone.trigger_sync();
+                        }
                         tray::toggle_window(&window);
                     }
                     tray::TrayCommand::ShowWindow => {
                         tracing::info!("处理托盘命令: ShowWindow");
+                        sync_engine_clone.trigger_sync();
                         tray::show_window_near_tray(&window);
                     }
                     tray::TrayCommand::HideWindow => {
@@ -270,7 +275,6 @@ fn open_gmail() {
 /// 绑定所有 Slint 回调
 fn bind_callbacks(
     main_window: &MainWindow,
-    _window_tx: &mpsc::Sender<tray::WindowCommand>,
     rt_handle: tokio::runtime::Handle,
 ) -> Result<()> {
     // 主题切换

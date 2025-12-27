@@ -168,42 +168,6 @@ pub fn save_account(account: &GmailAccount) -> Result<()> {
     Ok(())
 }
 
-/// 删除账户
-///
-/// # Arguments
-/// * `email` - 要删除的账户邮箱
-///
-/// # Returns
-/// 返回是否成功删除（true = 找到并删除，false = 未找到）
-pub fn delete_account(email: &str) -> Result<bool> {
-    let mut accounts = load_accounts()?;
-    let original_len = accounts.len();
-
-    // 过滤掉指定邮箱
-    accounts.retain(|a| a.email != email);
-
-    if accounts.len() < original_len {
-        save_accounts(&accounts)?;
-        tracing::info!("删除账户: {}", email);
-        Ok(true)
-    } else {
-        tracing::warn!("未找到要删除的账户: {}", email);
-        Ok(false)
-    }
-}
-
-/// 查找账户
-///
-/// # Arguments
-/// * `email` - 账户邮箱
-///
-/// # Returns
-/// 返回匹配的账户，未找到则返回 None
-pub fn find_account(email: &str) -> Result<Option<GmailAccount>> {
-    let accounts = load_accounts()?;
-    Ok(accounts.into_iter().find(|a| a.email == email))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -285,43 +249,6 @@ mod tests {
         // 验证没有重复
         let count = loaded.iter().filter(|a| a.email == "update@gmail.com").count();
         assert_eq!(count, 1);
-    }
-
-    #[test]
-    #[ignore] // 需要 Windows 环境和文件系统权限
-    fn test_delete_account() {
-        let account = create_test_account("delete@gmail.com");
-
-        // 保存
-        save_account(&account).unwrap();
-
-        // 删除
-        let deleted = delete_account("delete@gmail.com").unwrap();
-        assert!(deleted);
-
-        // 验证已删除
-        let loaded = load_accounts().unwrap();
-        assert!(!loaded.iter().any(|a| a.email == "delete@gmail.com"));
-
-        // 重复删除应返回 false
-        let deleted_again = delete_account("delete@gmail.com").unwrap();
-        assert!(!deleted_again);
-    }
-
-    #[test]
-    #[ignore] // 需要 Windows 环境和文件系统权限
-    fn test_find_account() {
-        let account = create_test_account("find@gmail.com");
-        save_account(&account).unwrap();
-
-        // 查找存在的账户
-        let found = find_account("find@gmail.com").unwrap();
-        assert!(found.is_some());
-        assert_eq!(found.unwrap().email, "find@gmail.com");
-
-        // 查找不存在的账户
-        let not_found = find_account("nonexistent@gmail.com").unwrap();
-        assert!(not_found.is_none());
     }
 
     #[test]

@@ -131,43 +131,6 @@ impl OAuthConfig {
             || self.client_secret.contains("YOUR_CLIENT_SECRET")
     }
 
-    /// 保存示例配置到文件
-    ///
-    /// 创建一个示例配置文件供用户参考
-    pub fn save_example() -> Result<PathBuf> {
-        let config_dir = dirs::config_dir()
-            .ok_or_else(|| anyhow::anyhow!("无法获取配置目录"))?
-            .join("NanoMail");
-
-        std::fs::create_dir_all(&config_dir)?;
-
-        let example_path = config_dir.join("config.example.toml");
-
-        let example_content = r#"# NanoMail OAuth2 配置示例
-#
-# 1. 从 Google Cloud Console 获取凭据
-#    https://console.cloud.google.com/apis/credentials
-#
-# 2. 创建 OAuth2 客户端 ID（桌面应用）
-#
-# 3. 将凭据填入下方，并重命名文件为 config.toml
-
-[app]
-version = "0.1.0"
-theme = "light"
-sync_interval = 300
-
-[oauth]
-client_id = "YOUR_CLIENT_ID.apps.googleusercontent.com"
-client_secret = "YOUR_CLIENT_SECRET"
-redirect_uri = "http://localhost:8080"
-scopes = ["https://www.googleapis.com/auth/gmail.readonly"]
-"#;
-
-        std::fs::write(&example_path, example_content)?;
-
-        Ok(example_path)
-    }
 }
 
 #[cfg(test)]
@@ -211,16 +174,4 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_save_example() {
-        let path = OAuthConfig::save_example().unwrap();
-        assert!(path.exists());
-        assert!(path.to_string_lossy().contains("config.example.toml"));
-
-        // 验证文件内容
-        let content = std::fs::read_to_string(&path).unwrap();
-        assert!(content.contains("[oauth]"));
-        assert!(content.contains("client_id"));
-        assert!(content.contains("Google Cloud Console"));
-    }
 }
