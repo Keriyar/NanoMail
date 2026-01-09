@@ -5,8 +5,7 @@ use anyhow::{Context, Result};
 use serde::Deserialize;
 
 use crate::mail::gmail::types::GmailAccount;
-use crate::utils::http_client;
-use std::path::PathBuf;
+use crate::utils::{avatar, http_client};
 use std::time::Duration;
 use tokio::time::timeout;
 
@@ -194,87 +193,18 @@ impl GmailApiClient {
     }
 }
 
-/// 下载头像并缓存到配置目录下的 `avatars/`，返回本地 file:// URI（如果成功）
+/// 下载头像并生成缩略图缓存（48x48），返回本地路径
+///
+/// 优先使用已缓存的缩略图，避免重复下载
 async fn download_avatar_to_cache(url: &str, email: &str) -> Option<String> {
-    // 解析扩展名（优先从 Content-Type）
-    let client = reqwest::Client::new();
-
-    let resp = match client.get(url).send().await {
-        Ok(r) => r,
-        Err(e) => {
-            tracing::warn!("下载头像失败（请求失败）: {}: {}", url, e);
-            return None;
-        }
-    };
-
-    if !resp.status().is_success() {
-        tracing::warn!("下载头像失败（HTTP {}）: {}", resp.status(), url);
-        return None;
+    // 先检查是否已有缓存
+    if let Some(cached) = avatar::get_cached_avatar_path(email) {
+        tracing::debug!("使用已缓存的头像: {}", cached);
+        return Some(cached);
     }
 
-    let content_type = resp
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-
-    let ext = if content_type.starts_with("image/png") {
-        "png"
-    } else if content_type.starts_with("image/jpeg") {
-        "jpg"
-    } else if content_type.starts_with("image/webp") {
-        "webp"
-    } else if content_type.starts_with("image/svg") || content_type.contains("svg") {
-        "svg"
-    } else {
-        // fallback: try parse from url
-        if let Some(pos) = url.rfind('.') {
-            let candidate = &url[pos + 1..];
-            if candidate.len() <= 5 {
-                candidate
-            } else {
-                "img"
-            }
-        } else {
-            "img"
-        }
-    };
-
-    let bytes = match resp.bytes().await {
-        Ok(b) => b,
-        Err(e) => {
-            tracing::warn!("读取头像响应体失败: {}", e);
-            return None;
-        }
-    };
-
-    // 构建缓存路径
-    let mut cache_dir = match dirs::config_dir() {
-        Some(d) => d.join("NanoMail").join("avatars"),
-        None => {
-            tracing::warn!("无法获取配置目录，跳过头像缓存");
-            return None;
-        }
-    };
-
-    if let Err(e) = std::fs::create_dir_all(&cache_dir) {
-        tracing::warn!("创建头像缓存目录失败: {}", e);
-        return None;
-    }
-
-    // 文件名使用邮箱的 base64 或安全化
-    let safe_name = email.replace('@', "_").replace('.', "_");
-    cache_dir.push(format!("{}.{}", safe_name, ext));
-
-    let path_buf: PathBuf = cache_dir.clone();
-
-    if let Err(e) = std::fs::write(&path_buf, &bytes) {
-        tracing::warn!("写入头像缓存失败: {}", e);
-        return None;
-    }
-
-    // 返回本地绝对路径（Slint 在不同平台对 file:// 支持不一，使用本地路径更稳健）
-    Some(path_buf.display().to_string())
+    // 下载并生成缩略图
+    avatar::download_and_resize_avatar(url, email).await
 }
 
 /// 账户同步信息（包含未读数、头像和错误状态）

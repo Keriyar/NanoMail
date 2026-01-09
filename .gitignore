@@ -12,6 +12,7 @@ CLAUDE.md
 GEMINI.md
 .claude
 *.env
+.agent
 
 
 # 日志

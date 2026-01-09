@@ -7,8 +7,8 @@ description = "A lightweight Gmail notification client for Windows"
 license = "GPL-3.0"
 
 [dependencies]
-# UI框架 - Slint
-slint = { version = "1.8", features = ["renderer-winit-femtovg"] }
+# UI框架 - Slint (软件渲染，无GPU依赖)
+slint = { version = "1.8", features = ["renderer-winit-software"] }
 
 # 异步运行时 - 只启用必需的 features（减少编译大小和启动开销）
 tokio = { version = "1.38", features = [
@@ -28,7 +28,7 @@ tiny_http = "0.12"
 # 系统集成
 tray-icon = "0.14"
 webbrowser = "1.0"
-image = { version = "0.25", default-features = false, features = ["ico"] }
+image = { version = "0.25", default-features = false, features = ["ico", "png", "jpeg"] }
 
 # 数据序列化
 serde = { version = "1.0", features = ["derive"] }
@@ -60,6 +60,9 @@ once_cell = "1.20"                                 # 懒初始化单例（用于
 
 # 屏幕尺寸检测（跨平台、轻量）
 screen_size = "0.1.0"
+
+# Windows 原生 Toast 通知 (WinRT API)
+winrt-toast-reborn = "0.3"
 
 
 [build-dependencies]

@@ -9,6 +9,7 @@ use std::sync::{Arc, mpsc};
 
 mod config;
 mod mail;
+mod notification;
 mod sync;
 mod tray;
 mod ui;
@@ -77,7 +78,8 @@ fn main() -> Result<()> {
             Ok(sync_info) => {
                 tracing::info!(
                     "[DEBUG-UNREAD] 回调收到: email={}, unread_count={}",
-                    email, sync_info.unread_count
+                    email,
+                    sync_info.unread_count
                 );
 
                 // 更新UI（必须在事件循环中）
@@ -223,20 +225,28 @@ fn handle_tray_commands(
                 match cmd {
                     tray::TrayCommand::ToggleWindow => {
                         tracing::info!("处理托盘命令: ToggleWindow");
-                        // 如果窗口将要显示，触发立即同步
                         if !window.window().is_visible() {
+                            // 窗口将要显示，重新加载 UI 资源并触发同步
+                            reload_accounts_ui(&window);
                             sync_engine_clone.trigger_sync();
+                        } else {
+                            // 窗口将要隐藏，清空 UI 资源
+                            clear_accounts_ui(&window);
                         }
                         tray::toggle_window(&window);
                     }
                     tray::TrayCommand::ShowWindow => {
                         tracing::info!("处理托盘命令: ShowWindow");
+                        // 重新加载 UI 资源并触发同步
+                        reload_accounts_ui(&window);
                         sync_engine_clone.trigger_sync();
                         tray::show_window_near_tray(&window);
                     }
                     tray::TrayCommand::HideWindow => {
                         tracing::info!("处理托盘命令: HideWindow");
                         window.hide().ok();
+                        // 清空 UI 资源以减少内存占用
+                        clear_accounts_ui(&window);
                     }
                     tray::TrayCommand::OpenGmail => {
                         tracing::info!("处理托盘命令: OpenGmail");
@@ -273,10 +283,7 @@ fn open_gmail() {
 }
 
 /// 绑定所有 Slint 回调
-fn bind_callbacks(
-    main_window: &MainWindow,
-    rt_handle: tokio::runtime::Handle,
-) -> Result<()> {
+fn bind_callbacks(main_window: &MainWindow, rt_handle: tokio::runtime::Handle) -> Result<()> {
     // 主题切换
     main_window.on_theme_toggled({
         let weak = main_window.as_weak();
@@ -287,14 +294,19 @@ fn bind_callbacks(
                 let current_is_dark = Theme::get(&window).get_is_dark();
                 let new_is_dark = !current_is_dark;
                 Theme::get(&window).set_is_dark(new_is_dark);
-                tracing::info!("主题切换: {} -> {}", 
+                tracing::info!(
+                    "主题切换: {} -> {}",
                     if current_is_dark { "dark" } else { "light" },
                     if new_is_dark { "dark" } else { "light" }
                 );
 
                 // 持久化主题偏好
                 if let Ok(mut cfg) = config::load() {
-                    cfg.app.theme = if new_is_dark { "dark".to_string() } else { "light".to_string() };
+                    cfg.app.theme = if new_is_dark {
+                        "dark".to_string()
+                    } else {
+                        "light".to_string()
+                    };
                     if let Err(e) = config::save(&cfg) {
                         tracing::error!("保存主题配置失败: {}", e);
                     }
@@ -368,13 +380,15 @@ fn bind_callbacks(
         }
     });
 
-    // 窗口中的“隐藏到托盘”按钮（之前名为退出）
+    // 窗口中的"隐藏到托盘"按钮（之前名为退出）
     main_window.on_minimize_clicked({
         let weak = main_window.as_weak();
         move || {
-            tracing::info!("[回调] 隐藏到托盘按钮被点击，隐藏窗口");
+            tracing::info!("[回调] 隐藏到托盘按钮被点击，隐藏窗口并释放资源");
             if let Some(window) = weak.upgrade() {
                 window.hide().ok();
+                // 清空 UI 资源以减少内存占用
+                clear_accounts_ui(&window);
             }
         }
     });
@@ -458,7 +472,8 @@ fn update_account_sync_info(window: &MainWindow, sync_info: mail::gmail::Account
                 if sync_info.error_message.is_none() {
                     tracing::info!(
                         "[DEBUG-UNREAD] UI更新前: 旧值={}, 新值={}",
-                        acc.unread_count, sync_info.unread_count
+                        acc.unread_count,
+                        sync_info.unread_count
                     );
                     acc.unread_count = sync_info.unread_count as i32;
                     tracing::info!(
@@ -498,6 +513,46 @@ fn update_account_sync_info(window: &MainWindow, sync_info: mail::gmail::Account
     // 更新 UI
     let model = VecModel::from(new_accounts);
     window.set_accounts(Rc::new(model).into());
+}
+
+/// 清空 UI 账户数据（释放 Image 内存）
+///
+/// 在窗口隐藏时调用，减少内存占用
+fn clear_accounts_ui(window: &MainWindow) {
+    use slint::VecModel;
+    use std::rc::Rc;
+
+    // 设置为空列表，释放所有 Image 对象
+    let empty_model: VecModel<Account> = VecModel::default();
+    window.set_accounts(Rc::new(empty_model).into());
+    
+    tracing::info!("📦 UI 资源已释放（账户数据已清空）");
+}
+
+/// 重新加载 UI 账户数据
+///
+/// 在窗口显示时调用，从本地存储加载账户并填充 UI
+fn reload_accounts_ui(window: &MainWindow) {
+    use slint::VecModel;
+    use std::rc::Rc;
+
+    // 从本地存储加载账户
+    let accounts = match config::storage::load_accounts() {
+        Ok(accounts) => accounts,
+        Err(e) => {
+            tracing::warn!("加载账户失败: {}", e);
+            return;
+        }
+    };
+
+    // 转换为 Slint 类型（会加载头像 Image）
+    let slint_accounts: Vec<Account> = accounts.into_iter().map(|acc| acc.into()).collect();
+    let count = slint_accounts.len();
+
+    let model = VecModel::from(slint_accounts);
+    window.set_accounts(Rc::new(model).into());
+
+    tracing::info!("📦 UI 资源已重新加载（{} 个账户）", count);
 }
 
 /// 初始化日志系统

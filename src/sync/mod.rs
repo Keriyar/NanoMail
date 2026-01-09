@@ -3,6 +3,7 @@
 /// 负责定期同步所有账户的邮件信息（未读数、头像等）
 /// 支持后台定时轮询 + 手动触发立即同步
 use anyhow::Result;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{Notify, RwLock};
@@ -10,6 +11,7 @@ use tokio::time::interval;
 
 use crate::config::storage;
 use crate::mail::gmail::{self, AccountSyncInfo};
+use crate::notification;
 
 /// 同步间隔（10秒后台轮询）
 const SYNC_INTERVAL_SECS: u64 = 10;
@@ -24,6 +26,9 @@ pub struct SyncEngine {
 
     /// 立即同步触发器（使用 Notify 实现轻量级信号）
     trigger: Arc<Notify>,
+
+    /// 各账户的前一次未读数（用于检测新邮件）
+    previous_unread: Arc<RwLock<HashMap<String, u32>>>,
 }
 
 impl SyncEngine {
@@ -36,6 +41,7 @@ impl SyncEngine {
             running: Arc::new(RwLock::new(false)),
             rt_handle,
             trigger: Arc::new(Notify::new()),
+            previous_unread: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -60,6 +66,7 @@ impl SyncEngine {
         let running = self.running.clone();
         let trigger = self.trigger.clone();
         let handle = self.rt_handle.clone();
+        let previous_unread = self.previous_unread.clone();
 
         // 检查是否已经在运行
         if *running.blocking_read() {
@@ -143,6 +150,26 @@ impl SyncEngine {
                                 sync_info.email,
                                 sync_info.unread_count
                             );
+
+                            // 检测新邮件并发送通知
+                            {
+                                let mut prev = previous_unread.write().await;
+                                let old_count = prev.get(&sync_info.email).copied().unwrap_or(0);
+                                let new_count = sync_info.unread_count;
+                                
+                                if new_count > old_count {
+                                    let diff = new_count - old_count;
+                                    tracing::info!(
+                                        "📬 检测到新邮件: {} (+{} 封)",
+                                        sync_info.email,
+                                        diff
+                                    );
+                                    notification::show_new_mail_notification(&sync_info.email, diff);
+                                }
+                                
+                                // 更新记录
+                                prev.insert(sync_info.email.clone(), new_count);
+                            }
 
                             // 调用回调函数更新UI（成功）
                             sync_callback(email, Ok(sync_info));

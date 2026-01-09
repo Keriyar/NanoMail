@@ -146,22 +146,41 @@ use slint::Image;
 
 impl From<GmailAccount> for crate::Account {
     fn from(gmail: GmailAccount) -> Self {
-        // 尝试加载占位符图片（项目资源），失败则使用 Image::default()
-        let placeholder = match Image::load_from_path(std::path::Path::new(
-            "assets/icons/placeholder-avatar.svg",
-        )) {
-            Ok(img) => img,
-            Err(_) => Image::default(),
+        // 优先尝试从缓存加载头像缩略图
+        let avatar_image = if let Some(cached_path) = crate::utils::avatar::get_cached_avatar_path(&gmail.email) {
+            match Image::load_from_path(std::path::Path::new(&cached_path)) {
+                Ok(img) => {
+                    tracing::debug!("从缓存加载头像: {}", cached_path);
+                    img
+                }
+                Err(e) => {
+                    tracing::warn!("加载缓存头像失败: {} - {}", cached_path, e);
+                    load_placeholder_avatar()
+                }
+            }
+        } else {
+            // 没有缓存，使用占位符
+            load_placeholder_avatar()
         };
 
         Self {
             email: gmail.email.into(),
             display_name: gmail.display_name.into(),
-            avatar_image: placeholder,
-            unread_count: 0, // TODO: 阶段4 实现未读数获取
+            avatar_image,
+            unread_count: 0, // 由同步引擎更新
             is_loading: false,
             has_error: false,
         }
+    }
+}
+
+/// 加载占位符头像
+fn load_placeholder_avatar() -> Image {
+    // 尝试从嵌入资源加载
+    const PLACEHOLDER_BYTES: &[u8] = include_bytes!("../../../assets/icons/placeholder-avatar.svg");
+    match Image::load_from_svg_data(PLACEHOLDER_BYTES) {
+        Ok(img) => img,
+        Err(_) => Image::default(),
     }
 }
 
